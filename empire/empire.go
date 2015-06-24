@@ -8,6 +8,7 @@ import (
 	"github.com/fsouza/go-dockerclient"
 	"github.com/inconshreveable/log15"
 	"github.com/mattes/migrate/migrate"
+	"github.com/remind101/empire/empire/pkg/dockerutil"
 	"github.com/remind101/empire/empire/pkg/service"
 	"github.com/remind101/empire/empire/pkg/sslcert"
 	"github.com/remind101/pkg/reporter"
@@ -67,15 +68,9 @@ type ELBOptions struct {
 	InternalZoneID string
 }
 
-// RunnerOptions is a set of options to configure the one off process runner service.
-type RunnerOptions struct {
-	API string
-}
-
 // Options is provided to New to configure the Empire services.
 type Options struct {
 	Docker DockerOptions
-	Runner RunnerOptions
 	ECS    ECSOptions
 	ELB    ELBOptions
 
@@ -109,7 +104,7 @@ type Empire struct {
 	deployer     *deployer
 	scaler       *scaler
 	restarter    *restarter
-	runner       *runner
+	runner       runner
 }
 
 // New returns a new Empire instance.
@@ -168,7 +163,7 @@ func New(options Options) (*Empire, error) {
 		manager:  manager,
 	}
 
-	runner := newRunner(options.Runner, store)
+	runner := newRunner(store)
 
 	releases := &releasesService{
 		store:    store,
@@ -320,8 +315,8 @@ type ProcessesRunOpts struct {
 }
 
 // ProcessesRun runs a one-off process for a given App and command.
-func (e *Empire) ProcessesRun(ctx context.Context, app *App, command string, opts ProcessesRunOpts) (*ContainerRelay, error) {
-	return e.runner.Run(ctx, app, command, opts)
+func (e *Empire) ProcessesRun(ctx context.Context, app *App, opts RunOpts) error {
+	return e.runner.Run(ctx, app, opts)
 }
 
 // ReleasesFindByApp returns all Releases for a given App.
@@ -414,19 +409,8 @@ func newCertManager(config *aws.Config) sslcert.Manager {
 	return sslcert.NewIAMManager(config, "/empire/certs/")
 }
 
-func newRunner(options RunnerOptions, s *store) *runner {
-	var r containerRelayer
-	if options.API == "fake" {
-		log.Println("warn: runner not configured, command runner disabled.")
-		r = &fakeRelayer{}
-	} else {
-		r = &relayer{API: options.API}
-	}
-
-	return &runner{
-		store:   s,
-		relayer: r,
-	}
+func newRunner(s *store) runner {
+	return &nullRunner{}
 }
 
 func newLogger() log15.Logger {
@@ -443,7 +427,7 @@ func newExtractor(o DockerOptions) (Extractor, error) {
 		return &fakeExtractor{}, nil
 	}
 
-	c, err := newDockerClient(o.Socket, o.CertPath)
+	c, err := dockerutil.NewClient(o.Socket, o.CertPath)
 	return newProcfileFallbackExtractor(c), err
 }
 
@@ -453,6 +437,6 @@ func newResolver(o DockerOptions) (Resolver, error) {
 		return &fakeResolver{}, nil
 	}
 
-	c, err := newDockerClient(o.Socket, o.CertPath)
+	c, err := dockerutil.NewClient(o.Socket, o.CertPath)
 	return newDockerResolver(c, o.Auth), err
 }

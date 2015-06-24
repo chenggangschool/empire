@@ -74,24 +74,17 @@ func (h *PostProcess) ServeHTTPContext(ctx context.Context, w http.ResponseWrite
 		return err
 	}
 
-	relay, err := h.ProcessesRun(ctx, a, form.Command, empire.ProcessesRunOpts{
-		Attach: form.Attach,
-		Env:    form.Env,
-		Size:   form.Size,
-	})
-
-	dyno := &heroku.Dyno{
-		Name:      relay.Name,
-		AttachURL: &relay.AttachURL,
-		Command:   relay.Command,
-		State:     relay.State,
-		Type:      relay.Type,
-		Size:      relay.Size,
-		CreatedAt: relay.CreatedAt,
+	if err := h.ProcessesRun(ctx, a, empire.RunOpts{
+		Command: &form.Command,
+		Attach:  form.Attach,
+		Env:     form.Env,
+		//Size:    form.Size,
+	}); err != nil {
+		return err
 	}
 
 	w.WriteHeader(201)
-	return Encode(w, dyno)
+	return nil
 }
 
 type DeleteProcesses struct {
